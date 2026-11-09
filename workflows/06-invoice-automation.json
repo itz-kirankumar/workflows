@@ -1,0 +1,327 @@
+{
+  "name": "06 - AI Invoice Automation",
+  "nodes": [
+    {
+      "id": "82af482a-722d-4ff3-a8db-189a52f31767",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "b03c61c8-558e-4222-8237-a47b9e40ab8a",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-automation",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "f7dd2a23-caf8-4a18-9eca-944409d6ed34",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "31663c1e-fa12-4afb-90ff-a3380a05238c",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "8795b9ae-cdc4-4a6b-a462-2a3de83d84f9",
+              "name": "spreadsheetUrl",
+              "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "7d11ad2a-64ba-44ee-8b98-5a1fc9fbad91",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = items.map((it, i) => ({ input: it.json.body ?? it.json, i }));\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "2fdce1f6-d8d9-4385-b051-685856e52c01",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are an accounts-payable specialist. Extract invoice data from the text. Recalculate subtotal + tax and set is_valid=false if totals do not match or required fields are missing; explain in issues.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: vendor, invoice_number, invoice_date, due_date, currency, subtotal (number), tax (number), total (number), line_items (array), is_valid (boolean), issues. Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "ba5c5389-ecfc-4b7b-afe8-56b8f1d4ac54",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "739b5c7a-ef51-432b-9572-7e66eab43518",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "a923273f-8c0e-4c3d-9ba9-ab5121d15ab6",
+      "name": "If is_valid is true",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "4ad885f8-c1fc-4810-8255-119932168bfc",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "ff87d329-44cd-4f1f-82d2-a2a5353f386c",
+      "name": "Flatten Row (Invoices)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        180
+      ],
+      "parameters": {
+        "jsCode": "// Google Sheets cells can't hold arrays/objects - stringify them.\nreturn $input.all().map((it, i) => ({\n  json: Object.fromEntries(Object.entries(it.json).map(([k, v]) => [k, v !== null && typeof v === 'object' ? JSON.stringify(v) : v])),\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "098799aa-8937-4084-b83d-97c28a1d514d",
+      "name": "Log to Invoices",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1680,
+        180
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Config').first().json.spreadsheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Invoices"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9ac14c41-e3ca-4576-866e-08aaeb0d75d5",
+      "name": "Slack #finance",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        420
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#finance"
+        },
+        "text": "=:warning: Invoice {{ $json.invoice_number }} from {{ $json.vendor }} failed validation: {{ $json.issues }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "51d6755e-a22d-4769-a042-374fb8ff2381",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 06 · AI Invoice Automation\nExtracts line items, totals and due dates from invoice text/OCR, validates the maths and books valid invoices to Sheets.\n\n**Trigger:** `POST /webhook/invoice-automation` (JSON body)\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: Google Sheets OAuth2, OpenAI API, Slack.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate.\n\n**Sample payload:**\n```json\n{\n \"text\": \"INVOICE #INV-1042 Vendor: CloudCo Date: 2026-11-01 Due: 2026-12-01 Hosting 1 x 400.00 Support 1 x 100.00 Subtotal 500.00 GST 18% 90.00 Total 590.00 INR\"\n}\n```"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If is_valid is true",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If is_valid is true": {
+      "main": [
+        [
+          {
+            "node": "Flatten Row (Invoices)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack #finance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Row (Invoices)": {
+      "main": [
+        [
+          {
+            "node": "Log to Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

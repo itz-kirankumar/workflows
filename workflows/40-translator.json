@@ -1,0 +1,260 @@
+{
+  "name": "40 - AI Language Translator",
+  "nodes": [
+    {
+      "id": "b63e724e-ba38-43a6-abd8-f4c8075fcb93",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "b5a5fb0c-54ca-49b7-b73a-4cbdf108c745",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "translator",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "6e7e6cec-df49-45c7-9a51-f0aa6fcbdf7c",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c066f65f-5158-4f39-b703-5dcc7fb1417b",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1ee0867a-6c49-450b-a0a2-7850e168e549",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = items.map((it, i) => ({ input: it.json.body ?? it.json, i }));\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "591e2498-cbf1-4c1f-a4ee-eaaa9d1d7e2a",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are a professional localiser. Translate the text into each language in \\\"target_languages\\\" (default [\\\"es\\\",\\\"fr\\\",\\\"de\\\",\\\"hi\\\"]). Preserve tone, formatting, placeholders and brand names. Rate your confidence 0-1 and note anything that may need a native reviewer.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: source_language, translations (object lang -> text), confidence (0-1), reviewer_notes. Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "0e86d8a9-3934-488f-97d3-affa50a676f5",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "2cb5a893-1f0e-4a5f-8cb0-71cbbea8c032",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "3bfe2bab-aa9b-470c-bfd2-06c5ea4c0c86",
+      "name": "If confidence >= 0.85",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "9cc74aeb-eb28-4b59-b48f-c236f9b18d1f",
+              "leftValue": "={{ $json.confidence }}",
+              "rightValue": 0.85,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "1c1f4800-0cd6-4094-8e26-1e918b8499dc",
+      "name": "Slack #localization",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        420
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#localization"
+        },
+        "text": "=:globe_with_meridians: Translation needs review ({{ $json.confidence }}): {{ $json.reviewer_notes }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "dd4833f1-87bb-4865-867d-ef118c5de006",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 40 · AI Language Translator\nTranslates text into one or more target languages preserving tone and formatting, with a quality self-check.\n\n**Trigger:** `POST /webhook/translator` (JSON body)\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: OpenAI API, Slack.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate.\n\n**Sample payload:**\n```json\n{\n \"text\": \"Your order has shipped and will arrive in 2 days.\",\n \"target_languages\": [\n  \"hi\",\n  \"ta\",\n  \"es\"\n ]\n}\n```"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If confidence >= 0.85",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If confidence >= 0.85": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Slack #localization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,283 @@
+{
+  "name": "33 - AI Timesheet Collector",
+  "nodes": [
+    {
+      "id": "3598ecbe-dd4b-4764-9c32-a7d57ccea29e",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 16 * * 5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b70abcab-f653-48d9-9cf0-05a1221fe558",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0436b89-5063-445c-b7db-afa202c0e9bc",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "c1576d6c-4cfe-4ea2-82a1-3be3bd79448f",
+              "name": "spreadsheetUrl",
+              "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "99a05686-ad3a-4d81-9c1a-48ad5c9e668d",
+      "name": "Fetch Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Config').first().json.spreadsheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Timesheets"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "03e30bc4-eb10-4113-b3d9-7026fe69b539",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = items.map((it, i) => ({ input: it.json, i }));\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "b26063a4-ad3f-4a96-92be-d94b33600491",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are a payroll assistant. For the employee timesheet row for this week, determine if it is incomplete (less than expected hours logged) or anomalous (over 50h, entries on leave days). Write a short friendly reminder if incomplete.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: employee, email, hours_logged (number), is_incomplete (boolean), anomaly, reminder. Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "f42effbd-6e0f-4fc7-8d61-7914bc9fd36b",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "523853bd-dd73-45b4-be48-1ded80227cb6",
+      "name": "If is_incomplete is true",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "512e6586-e257-467d-b2e9-346d7a68aa8c",
+              "leftValue": "={{ $json.is_incomplete }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "739bb94f-d499-436d-be56-165c5ab1c5a7",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1680,
+        180
+      ],
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "=Reminder: please complete your timesheet",
+        "emailType": "text",
+        "message": "={{ $json.reminder }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "48c9bee6-9573-4b59-ad0b-56983450189c",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 33 · AI Timesheet Collector\nEvery Friday reviews timesheets, chases missing entries with friendly reminders and flags overtime anomalies.\n\n**Trigger:** schedule `0 16 * * 5`\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: Gmail OAuth2, Google Sheets OAuth2, OpenAI API.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate."
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "If is_incomplete is true",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If is_incomplete is true": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,316 @@
+{
+  "name": "02 - AI Appointment Scheduler",
+  "nodes": [
+    {
+      "id": "3652217c-05cb-4d78-8cda-e08da4e9d138",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "ef22466b-77af-48b5-b8be-0bd62cb0c222",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "appointment-scheduler",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "cc072e86-45cc-49b1-8e27-40f0ae84cd93",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5d1e5666-7d0a-41fb-9cf2-2a96ba0d268c",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "9212b6a2-08a3-4d08-991c-6b2a619b77a3",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = items.map((it, i) => ({ input: it.json.body ?? it.json, i }));\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "4445dcc3-8144-4f03-bb09-d9dc06540cda",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are a scheduling assistant. Extract a meeting request from the message. Resolve relative dates against the \\\"now\\\" field. Use ISO 8601 with timezone for start/end. If date or time is missing set is_complete=false and write a polite clarifying question in reply_message.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: name, email, title, start (ISO), end (ISO), is_complete (boolean), reply_message. Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "a29287dc-4115-47d8-ac9f-0927d766b9da",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "22985cd1-9dd4-432c-b439-1cf9f185b951",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "ee06400e-5bb1-462c-a3ed-7ec26dbeb538",
+      "name": "If is_complete is true",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "f7575714-3102-44b5-bda8-573325c4365e",
+              "leftValue": "={{ $json.is_complete }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "04d7a659-052c-46f4-8497-9c25bc200641",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1440,
+        180
+      ],
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "primary",
+          "cachedResultName": "primary"
+        },
+        "start": "={{ $json.start }}",
+        "end": "={{ $json.end }}",
+        "additionalFields": {
+          "summary": "={{ $json.title }}",
+          "attendees": [
+            "={{ $json.email }}"
+          ]
+        }
+      }
+    },
+    {
+      "id": "7fe72153-406e-45c5-b5a3-16a0859a56cf",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "=Confirmed: {{ $json.title }}",
+        "emailType": "text",
+        "message": "={{ $json.reply_message }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "2e2066a8-ca26-4e91-b064-81649a3d51f3",
+      "name": "Send Email 2",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        420
+      ],
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "=Quick question about your booking",
+        "emailType": "text",
+        "message": "={{ $json.reply_message }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "0aec2424-8bac-4b31-9cb1-77cb40ac6241",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 02 · AI Appointment Scheduler\nReads free-text booking requests, extracts date/time with AI, creates a Google Calendar event and emails a confirmation (or asks for missing details).\n\n**Trigger:** `POST /webhook/appointment-scheduler` (JSON body)\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: Gmail OAuth2, Google Calendar OAuth2, OpenAI API.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate.\n\n**Sample payload:**\n```json\n{\n \"name\": \"Rahul\",\n \"email\": \"rahul@example.com\",\n \"message\": \"Can we do a 30 min demo next Tuesday at 3pm IST?\"\n}\n```"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If is_complete is true",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If is_complete is true": {
+      "main": [
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Email 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

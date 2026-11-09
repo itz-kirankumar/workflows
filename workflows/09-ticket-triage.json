@@ -1,0 +1,385 @@
+{
+  "name": "09 - AI Support Ticket Triage",
+  "nodes": [
+    {
+      "id": "edd38e04-559b-4bf0-bfab-6aab8ff026a5",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "81ce3cfa-9c48-4b4c-b933-e896a46991eb",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ticket-triage",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "958b5273-a8d1-4a76-bce8-5be6cfed6ed4",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "06c10126-626e-4e29-a94c-fd1d8595dfa3",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "e7a18081-3d1f-4fbe-a1f6-6eca669c920f",
+              "name": "spreadsheetUrl",
+              "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e5ac4400-0019-4bfa-bf47-872b953e369b",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = items.map((it, i) => ({ input: it.json.body ?? it.json, i }));\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "17231120-f5b4-4653-9924-4793f0a76041",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are a support triage lead. Classify the ticket, assign priority P1-P4 (P1 = outage/data loss/security), detect sentiment, choose the owning team and draft a first response.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: ticket_id, customer_email, category, priority (\\\"P1\\\"|\\\"P2\\\"|\\\"P3\\\"|\\\"P4\\\"), priority_score (1-4, 1 = P1), sentiment, team, summary, suggested_reply. Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "07c9692e-3e1e-45c9-82a9-db6f4cb8752e",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "5809a92f-8e33-48d5-aab8-c65ad09aa8e8",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "061810b5-953f-4e76-a76b-a5d400646a20",
+      "name": "If priority_score <= 2",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "b03393cb-f93c-4ede-8464-c77c26abddd2",
+              "leftValue": "={{ $json.priority_score }}",
+              "rightValue": 2,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "a4a7f1f4-084e-443d-9ffb-a342f5f06637",
+      "name": "Slack #support-urgent",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        180
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#support-urgent"
+        },
+        "text": "=:sos: {{ $json.priority }} ticket {{ $json.ticket_id }} -> {{ $json.team }}\n{{ $json.summary }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "624b1f37-d83c-43b8-b28a-9dfd7228338c",
+      "name": "Flatten Row (Tickets)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Google Sheets cells can't hold arrays/objects - stringify them.\nreturn $input.all().map((it, i) => ({\n  json: Object.fromEntries(Object.entries(it.json).map(([k, v]) => [k, v !== null && typeof v === 'object' ? JSON.stringify(v) : v])),\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "e03796b3-ea07-4303-8f9a-558a6faa571b",
+      "name": "Log to Tickets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Config').first().json.spreadsheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Tickets"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3c21bfe1-33e6-47fc-b1ff-910d677911ac",
+      "name": "Flatten Row (Tickets) 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        420
+      ],
+      "parameters": {
+        "jsCode": "// Google Sheets cells can't hold arrays/objects - stringify them.\nreturn $input.all().map((it, i) => ({\n  json: Object.fromEntries(Object.entries(it.json).map(([k, v]) => [k, v !== null && typeof v === 'object' ? JSON.stringify(v) : v])),\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "00a611f1-a2a3-4e12-b6b8-38dd40a99cec",
+      "name": "Log to Tickets 2",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1680,
+        420
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Config').first().json.spreadsheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Tickets"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "17a81b85-a4f3-4466-ac77-ad76dd58a47d",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 09 · AI Support Ticket Triage\nClassifies incoming tickets by category, priority and sentiment, routes urgent ones to on-call and posts a suggested first reply.\n\n**Trigger:** `POST /webhook/ticket-triage` (JSON body)\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: Google Sheets OAuth2, OpenAI API, Slack.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate.\n\n**Sample payload:**\n```json\n{\n \"ticket_id\": \"T-9812\",\n \"customer_email\": \"user@client.com\",\n \"subject\": \"Dashboard down\",\n \"body\": \"Since 10am none of our team can log in, we get a 500 error. This is blocking all work.\"\n}\n```"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If priority_score <= 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If priority_score <= 2": {
+      "main": [
+        [
+          {
+            "node": "Slack #support-urgent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Flatten Row (Tickets)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flatten Row (Tickets) 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Row (Tickets)": {
+      "main": [
+        [
+          {
+            "node": "Log to Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Row (Tickets) 2": {
+      "main": [
+        [
+          {
+            "node": "Log to Tickets 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

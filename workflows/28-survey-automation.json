@@ -1,0 +1,412 @@
+{
+  "name": "28 - AI Survey Automation",
+  "nodes": [
+    {
+      "id": "f4f74636-88cc-460a-87c7-975e4959700b",
+      "name": "Form Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "bd080fe0-dbc4-4b20-89a5-53e40b91ee33",
+      "parameters": {
+        "formTitle": "Customer Survey",
+        "formDescription": "Hosts a survey form, analyses each response with AI (NPS, sentiment, themes) and follows up with detractors.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Name",
+              "fieldType": "text",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "How likely are you to recommend us (0-10)?",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "What could we do better?",
+              "fieldType": "textarea",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e6560124-245b-4912-9568-aefccd1e2cca",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e5535ed4-1c86-4596-ac77-fa2d1b43a695",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "85463eea-1d90-43ca-8979-8cf8a09cb8c0",
+              "name": "spreadsheetUrl",
+              "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ea7a26a7-8c92-4cb9-8bb4-7b78d9fd01d4",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = items.map((it, i) => ({ input: it.json, i }));\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "58fb9a01-f269-4bee-86ed-cd423736d546",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are a customer-insights analyst. Analyse the survey response: NPS category (promoter 9-10, passive 7-8, detractor 0-6), sentiment, key themes, and draft a personal follow-up email.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: name, email, nps (number), nps_category, sentiment, themes (array), followup_subject, followup_body. Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "1b83de4a-cf0b-4d8f-a441-6399c2db35d6",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "fce7c03c-b309-47f7-b6b6-571f927112b5",
+      "name": "If nps <= 6",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "77e88334-d3f7-46e2-89fc-1eefa434a0dc",
+              "leftValue": "={{ $json.nps }}",
+              "rightValue": 6,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "bfd7fec3-611e-4235-9817-a55f436a2ba8",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        180
+      ],
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.followup_subject }}",
+        "emailType": "text",
+        "message": "={{ $json.followup_body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "95900c62-85b6-425a-ba11-b2ad3b2900a7",
+      "name": "Slack #customer-success",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#customer-success"
+        },
+        "text": "=:disappointed: Detractor {{ $json.name }} (NPS {{ $json.nps }}): {{ $json.themes }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "187a73a3-08bc-4413-a84a-1870d96f5254",
+      "name": "Flatten Row (Survey Responses)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "// Google Sheets cells can't hold arrays/objects - stringify them.\nreturn $input.all().map((it, i) => ({\n  json: Object.fromEntries(Object.entries(it.json).map(([k, v]) => [k, v !== null && typeof v === 'object' ? JSON.stringify(v) : v])),\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "854a5885-f3ec-4280-ab89-a791a1ce0da0",
+      "name": "Log to Survey Responses",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1680,
+        -180
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Config').first().json.spreadsheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Survey Responses"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "73e8cdc2-a415-4e9b-aaa1-e4d4b987ea39",
+      "name": "Flatten Row (Survey Responses) 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        420
+      ],
+      "parameters": {
+        "jsCode": "// Google Sheets cells can't hold arrays/objects - stringify them.\nreturn $input.all().map((it, i) => ({\n  json: Object.fromEntries(Object.entries(it.json).map(([k, v]) => [k, v !== null && typeof v === 'object' ? JSON.stringify(v) : v])),\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "ddd17276-c519-4104-be49-d4509c871c96",
+      "name": "Log to Survey Responses 2",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1680,
+        420
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Config').first().json.spreadsheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Survey Responses"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8e00b388-e623-4f41-bc6d-d37ad7a7c765",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 28 · AI Survey Automation\nHosts a survey form, analyses each response with AI (NPS, sentiment, themes) and follows up with detractors.\n\n**Trigger:** hosted n8n form (open the Form Trigger to get the URL)\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: Gmail OAuth2, Google Sheets OAuth2, OpenAI API, Slack.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate."
+      }
+    }
+  ],
+  "connections": {
+    "Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "If nps <= 6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If nps <= 6": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack #customer-success",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Flatten Row (Survey Responses)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flatten Row (Survey Responses) 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Row (Survey Responses)": {
+      "main": [
+        [
+          {
+            "node": "Log to Survey Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Row (Survey Responses) 2": {
+      "main": [
+        [
+          {
+            "node": "Log to Survey Responses 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

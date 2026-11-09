@@ -1,0 +1,428 @@
+{
+  "name": "50 - AI Business Insights Dashboard",
+  "nodes": [
+    {
+      "id": "7974c300-e5e6-4e0c-9d0e-f65867c84bc4",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "7ee93d8d-3c41-4908-b73d-4ed158bb5e7d",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e7190780-4c5d-417c-aab6-aace5f30f2c7",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "1f5aefce-394c-4876-b100-1fa593f83e1b",
+              "name": "spreadsheetUrl",
+              "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b9cb3763-15db-4c64-891d-0e10f76c7aeb",
+      "name": "Fetch Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Config').first().json.spreadsheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "KPIs"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b5c93fd1-06ef-47d2-804c-810a205b56d7",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = [{ input: { records: items.map(it => it.json) }, i: 0 }];\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "94277205-e3e9-4e78-9723-243829ac9e1a",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are a chief-of-staff analyst. From the KPI rows (date, metric, value, target), compute today vs target and 7-day trend for each metric, then write an insights digest: 3 wins, 3 concerns, 3 recommended actions, and an overall health score 0-100.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: date, health_score (0-100), wins (array), concerns (array), actions (array), digest_markdown. Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "0874b184-720e-4254-82ec-692ebc0b21f8",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "943084e7-a98d-4b0d-beb3-7282001055b3",
+      "name": "If health_score <= 60",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "731c1116-b1b6-4ded-a6e7-e9ed9c7d311a",
+              "leftValue": "={{ $json.health_score }}",
+              "rightValue": 60,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "1cdcb10a-e475-481f-bfde-1beb88d16220",
+      "name": "Slack #leadership",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        180
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#leadership"
+        },
+        "text": "=:bar_chart: Business health {{ $json.health_score }}/100 - needs attention\n{{ $json.digest_markdown }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "a1fc80d6-789e-4896-9818-ac3ca2fba35f",
+      "name": "Flatten Row (Daily Insights)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Google Sheets cells can't hold arrays/objects - stringify them.\nreturn $input.all().map((it, i) => ({\n  json: Object.fromEntries(Object.entries(it.json).map(([k, v]) => [k, v !== null && typeof v === 'object' ? JSON.stringify(v) : v])),\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "c28ccd17-81a0-4fb3-a2dd-fdb0d155ce84",
+      "name": "Log to Daily Insights",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Config').first().json.spreadsheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Daily Insights"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8d7c2741-337b-4b1c-85f9-6aaa3d6ae087",
+      "name": "Slack #leadership 2",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        420
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#leadership"
+        },
+        "text": "=:bar_chart: Business health {{ $json.health_score }}/100\n{{ $json.digest_markdown }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "2c6d319b-2fed-4547-bf59-7a03c47c3c7c",
+      "name": "Flatten Row (Daily Insights) 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        600
+      ],
+      "parameters": {
+        "jsCode": "// Google Sheets cells can't hold arrays/objects - stringify them.\nreturn $input.all().map((it, i) => ({\n  json: Object.fromEntries(Object.entries(it.json).map(([k, v]) => [k, v !== null && typeof v === 'object' ? JSON.stringify(v) : v])),\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "3af0f087-e18c-4d73-8921-fb421e5ecb9b",
+      "name": "Log to Daily Insights 2",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1920,
+        600
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $('Config').first().json.spreadsheetUrl }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Daily Insights"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cb805a7f-6369-48f3-89a5-61be781c5d72",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 50 · AI Business Insights Dashboard\nDaily combines sales, marketing, support and finance metrics into an AI-written insights digest and logs KPIs for a dashboard.\n\n**Trigger:** schedule `0 7 * * *`\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: Google Sheets OAuth2, OpenAI API, Slack.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate."
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "If health_score <= 60",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If health_score <= 60": {
+      "main": [
+        [
+          {
+            "node": "Slack #leadership",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Flatten Row (Daily Insights)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack #leadership 2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Flatten Row (Daily Insights) 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Row (Daily Insights)": {
+      "main": [
+        [
+          {
+            "node": "Log to Daily Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Row (Daily Insights) 2": {
+      "main": [
+        [
+          {
+            "node": "Log to Daily Insights 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

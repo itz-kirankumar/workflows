@@ -1,0 +1,703 @@
+[
+  {
+    "n": 1,
+    "name": "AI Lead Qualification System",
+    "file": "01-lead-qualification.json",
+    "slug": "lead-qualification",
+    "category": "Sales",
+    "description": "Scores inbound leads 0-100 with AI, alerts sales on hot leads and logs every lead to Google Sheets.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 2,
+    "name": "AI Appointment Scheduler",
+    "file": "02-appointment-scheduler.json",
+    "slug": "appointment-scheduler",
+    "category": "Sales",
+    "description": "Reads free-text booking requests, extracts date/time with AI, creates a Google Calendar event and emails a confirmation (or asks for missing details).",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Calendar OAuth2",
+      "OpenAI API"
+    ]
+  },
+  {
+    "n": 3,
+    "name": "AI Email Responder",
+    "file": "03-email-responder.json",
+    "slug": "email-responder",
+    "category": "Communication",
+    "description": "Watches the inbox, classifies each unread email, auto-replies to routine ones and escalates sensitive ones to Slack.",
+    "trigger": "gmail",
+    "credentials": [
+      "Gmail OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 4,
+    "name": "AI Follow-Up Automation",
+    "file": "04-follow-up.json",
+    "slug": "follow-up",
+    "category": "Sales",
+    "description": "Every morning reviews leads in Google Sheets and sends personalised follow-up emails to contacts that went quiet.",
+    "trigger": "schedule",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API"
+    ]
+  },
+  {
+    "n": 5,
+    "name": "AI Proposal Generator",
+    "file": "05-proposal-generator.json",
+    "slug": "proposal-generator",
+    "category": "Sales",
+    "description": "Turns discovery-call notes into a structured sales proposal, emails the draft to the account owner and logs it.",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 6,
+    "name": "AI Invoice Automation",
+    "file": "06-invoice-automation.json",
+    "slug": "invoice-automation",
+    "category": "Finance",
+    "description": "Extracts line items, totals and due dates from invoice text/OCR, validates the maths and books valid invoices to Sheets.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 7,
+    "name": "AI Payment Reminder System",
+    "file": "07-payment-reminders.json",
+    "slug": "payment-reminders",
+    "category": "Finance",
+    "description": "Daily scan of unpaid invoices; AI writes reminders with tone matched to how overdue they are and escalates 30+ days.",
+    "trigger": "schedule",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 8,
+    "name": "AI Customer Onboarding",
+    "file": "08-customer-onboarding.json",
+    "slug": "customer-onboarding",
+    "category": "Customer Success",
+    "description": "When a new customer signs up, AI builds a personalised onboarding plan and welcome email; enterprise accounts get a CSM alert.",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 9,
+    "name": "AI Support Ticket Triage",
+    "file": "09-ticket-triage.json",
+    "slug": "ticket-triage",
+    "category": "Support",
+    "description": "Classifies incoming tickets by category, priority and sentiment, routes urgent ones to on-call and posts a suggested first reply.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 10,
+    "name": "AI Knowledge Base Assistant",
+    "file": "10-knowledge-base.json",
+    "slug": "knowledge-base",
+    "category": "Support",
+    "description": "Answers questions from your knowledge-base content (fetched from a URL) and flags gaps when the KB has no answer.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 11,
+    "name": "AI Social Media Scheduler",
+    "file": "11-social-scheduler.json",
+    "slug": "social-scheduler",
+    "category": "Marketing",
+    "description": "Daily picks the next topic from a content calendar sheet, writes platform-specific posts and queues them via your scheduling API (e.g. Buffer).",
+    "trigger": "schedule",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 12,
+    "name": "AI Content Repurposer",
+    "file": "12-content-repurposer.json",
+    "slug": "content-repurposer",
+    "category": "Marketing",
+    "description": "Takes a blog post or transcript and repurposes it into a newsletter, LinkedIn post, X thread, short-video script and quote cards.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 13,
+    "name": "AI Review Manager",
+    "file": "13-review-manager.json",
+    "slug": "review-manager",
+    "category": "Marketing",
+    "description": "Analyses new customer reviews, drafts on-brand responses and escalates negative reviews to the team.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 14,
+    "name": "AI Data Entry Automation",
+    "file": "14-data-entry.json",
+    "slug": "data-entry",
+    "category": "Operations",
+    "description": "Converts unstructured text (emails, forms, notes) into clean structured records and appends them to Google Sheets.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 15,
+    "name": "AI Document Classifier",
+    "file": "15-document-classifier.json",
+    "slug": "document-classifier",
+    "category": "Operations",
+    "description": "Classifies documents (invoice, contract, resume, receipt...) from their text, extracts key metadata and routes them.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 16,
+    "name": "AI Meeting Notes Assistant",
+    "file": "16-meeting-notes.json",
+    "slug": "meeting-notes",
+    "category": "Productivity",
+    "description": "Turns a meeting transcript into a summary, decisions and owner-assigned action items, then shares them on Slack and email.",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 17,
+    "name": "AI CRM Updater",
+    "file": "17-crm-updater.json",
+    "slug": "crm-updater",
+    "category": "Sales",
+    "description": "Reads call notes or email threads and pushes structured updates (stage, next step, deal value) to your CRM API.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API"
+    ]
+  },
+  {
+    "n": 18,
+    "name": "AI Pipeline Management",
+    "file": "18-pipeline-management.json",
+    "slug": "pipeline-management",
+    "category": "Sales",
+    "description": "Weekly review of every open deal: AI flags stalled or at-risk deals and recommends next actions to the sales channel.",
+    "trigger": "schedule",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 19,
+    "name": "AI Inventory Monitor",
+    "file": "19-inventory-monitor.json",
+    "slug": "inventory-monitor",
+    "category": "Operations",
+    "description": "Checks stock levels every 6 hours, predicts stock-out dates from sales velocity and recommends reorder quantities.",
+    "trigger": "schedule",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 20,
+    "name": "AI Order Processing",
+    "file": "20-order-processing.json",
+    "slug": "order-processing",
+    "category": "E-commerce",
+    "description": "Validates incoming orders, scores fraud risk, confirms good orders to the customer and holds risky ones for review.",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 21,
+    "name": "AI Shipping Automation",
+    "file": "21-shipping-automation.json",
+    "slug": "shipping-automation",
+    "category": "E-commerce",
+    "description": "Interprets carrier tracking events, writes customer-friendly status updates and flags delays or exceptions.",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 22,
+    "name": "AI Expense Categorizer",
+    "file": "22-expense-categorizer.json",
+    "slug": "expense-categorizer",
+    "category": "Finance",
+    "description": "Categorises expenses/receipts against your chart of accounts, flags policy violations and logs to the expense sheet.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 23,
+    "name": "AI Report Generator",
+    "file": "23-report-generator.json",
+    "slug": "report-generator",
+    "category": "Analytics",
+    "description": "Every Monday pulls metrics from your data endpoint and writes an executive weekly report with highlights and risks.",
+    "trigger": "schedule",
+    "credentials": [
+      "Gmail OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 24,
+    "name": "AI Sales Assistant",
+    "file": "24-sales-assistant.json",
+    "slug": "sales-assistant",
+    "category": "Sales",
+    "description": "Chat-style webhook that answers prospect questions about your product, captures buying signals and hands off hot prospects.",
+    "trigger": "webhook",
+    "credentials": [
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 25,
+    "name": "AI Upsell Recommender",
+    "file": "25-upsell-recommender.json",
+    "slug": "upsell-recommender",
+    "category": "Sales",
+    "description": "Analyses a customer usage/purchase profile and recommends the best upsell or cross-sell with a tailored pitch.",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API"
+    ]
+  },
+  {
+    "n": 26,
+    "name": "AI Churn Prediction",
+    "file": "26-churn-prediction.json",
+    "slug": "churn-prediction",
+    "category": "Customer Success",
+    "description": "Daily scores every account for churn risk from usage and support signals and alerts CS on high-risk accounts.",
+    "trigger": "schedule",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 27,
+    "name": "AI Feedback Analyzer",
+    "file": "27-feedback-analyzer.json",
+    "slug": "feedback-analyzer",
+    "category": "Product",
+    "description": "Analyses product feedback for sentiment, themes and feature requests and routes critical bugs to the product team.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 28,
+    "name": "AI Survey Automation",
+    "file": "28-survey-automation.json",
+    "slug": "survey-automation",
+    "category": "Product",
+    "description": "Hosts a survey form, analyses each response with AI (NPS, sentiment, themes) and follows up with detractors.",
+    "trigger": "form",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 29,
+    "name": "AI Webinar Automation",
+    "file": "29-webinar-automation.json",
+    "slug": "webinar-automation",
+    "category": "Marketing",
+    "description": "Handles webinar registrations: personalised confirmation, lead scoring from registration answers and sales alerts.",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 30,
+    "name": "AI Job Application Screener",
+    "file": "30-job-screener.json",
+    "slug": "job-screener",
+    "category": "HR",
+    "description": "Scores CVs against the job description, summarises strengths/gaps and fast-tracks strong candidates.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 31,
+    "name": "AI Interview Scheduler",
+    "file": "31-interview-scheduler.json",
+    "slug": "interview-scheduler",
+    "category": "HR",
+    "description": "Proposes interview slots from interviewer availability, books the calendar event and emails the candidate.",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Calendar OAuth2",
+      "OpenAI API"
+    ]
+  },
+  {
+    "n": 32,
+    "name": "AI Employee Onboarding",
+    "file": "32-employee-onboarding.json",
+    "slug": "employee-onboarding",
+    "category": "HR",
+    "description": "Creates a role-specific onboarding plan and welcome email for new hires and notifies IT/manager of setup tasks.",
+    "trigger": "webhook",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 33,
+    "name": "AI Timesheet Collector",
+    "file": "33-timesheet-collector.json",
+    "slug": "timesheet-collector",
+    "category": "HR",
+    "description": "Every Friday reviews timesheets, chases missing entries with friendly reminders and flags overtime anomalies.",
+    "trigger": "schedule",
+    "credentials": [
+      "Gmail OAuth2",
+      "Google Sheets OAuth2",
+      "OpenAI API"
+    ]
+  },
+  {
+    "n": 34,
+    "name": "AI Compliance Checker",
+    "file": "34-compliance-checker.json",
+    "slug": "compliance-checker",
+    "category": "Legal",
+    "description": "Checks policies, marketing copy or contracts against GDPR/brand/regulatory rules and reports violations with fixes.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 35,
+    "name": "AI Contract Analyzer",
+    "file": "35-contract-analyzer.json",
+    "slug": "contract-analyzer",
+    "category": "Legal",
+    "description": "Extracts parties, dates, value and key clauses from contracts and highlights risky terms for legal review.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 36,
+    "name": "AI Project Status Reporter",
+    "file": "36-project-status.json",
+    "slug": "project-status",
+    "category": "Productivity",
+    "description": "Every Friday pulls tasks from your PM tool API and writes a RAG-status project report for stakeholders.",
+    "trigger": "schedule",
+    "credentials": [
+      "Gmail OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 37,
+    "name": "AI Task Automation",
+    "file": "37-task-automation.json",
+    "slug": "task-automation",
+    "category": "Productivity",
+    "description": "Turns free-text requests (\"remind Priya to send the deck by Thursday\") into structured, prioritised tasks in your task tool.",
+    "trigger": "webhook",
+    "credentials": [
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 38,
+    "name": "AI File Organizer",
+    "file": "38-file-organizer.json",
+    "slug": "file-organizer",
+    "category": "Operations",
+    "description": "Suggests a clean file name, folder path and tags for every uploaded file based on its name and content preview.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 39,
+    "name": "AI Transcription Automation",
+    "file": "39-transcription.json",
+    "slug": "transcription",
+    "category": "Productivity",
+    "description": "Transcribes audio from a URL with OpenAI Whisper, then summarises it and extracts action items.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 40,
+    "name": "AI Language Translator",
+    "file": "40-translator.json",
+    "slug": "translator",
+    "category": "Communication",
+    "description": "Translates text into one or more target languages preserving tone and formatting, with a quality self-check.",
+    "trigger": "webhook",
+    "credentials": [
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 41,
+    "name": "AI Voice Assistant",
+    "file": "41-voice-assistant.json",
+    "slug": "voice-assistant",
+    "category": "Communication",
+    "description": "Accepts a voice note URL, transcribes it with Whisper, answers/acts on the request and returns a spoken MP3 reply via OpenAI TTS.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API"
+    ]
+  },
+  {
+    "n": 42,
+    "name": "AI Competitor Monitor",
+    "file": "42-competitor-monitor.json",
+    "slug": "competitor-monitor",
+    "category": "Marketing",
+    "description": "Daily fetches competitor pages, has AI compare against the last snapshot and reports meaningful changes.",
+    "trigger": "schedule",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 43,
+    "name": "AI Price Monitoring",
+    "file": "43-price-monitoring.json",
+    "slug": "price-monitoring",
+    "category": "E-commerce",
+    "description": "Every 4 hours checks product pages for prices, compares with your price and recommends adjustments.",
+    "trigger": "schedule",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 44,
+    "name": "AI Local SEO Monitor",
+    "file": "44-local-seo.json",
+    "slug": "local-seo",
+    "category": "Marketing",
+    "description": "Weekly audits your local business listing / landing page for NAP consistency, keywords and review signals, with fixes.",
+    "trigger": "schedule",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 45,
+    "name": "AI Ad Performance Monitor",
+    "file": "45-ad-performance.json",
+    "slug": "ad-performance",
+    "category": "Marketing",
+    "description": "Daily pulls ad campaign metrics, detects wasted spend and anomalies and recommends budget shifts.",
+    "trigger": "schedule",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 46,
+    "name": "AI Client Communication Hub",
+    "file": "46-client-comms-hub.json",
+    "slug": "client-comms-hub",
+    "category": "Communication",
+    "description": "One inbox webhook for every client channel (email, WhatsApp, chat, forms): AI classifies, drafts replies and routes to the right owner.",
+    "trigger": "webhook",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 47,
+    "name": "AI Backup Automation",
+    "file": "47-backup-automation.json",
+    "slug": "backup-automation",
+    "category": "IT",
+    "description": "Nightly exports every n8n workflow via the n8n API to a GitHub repo and has AI summarise what changed.",
+    "trigger": "schedule",
+    "credentials": [
+      "GitHub API",
+      "Header Auth (X-N8N-API-KEY)",
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 48,
+    "name": "AI System Health Monitor",
+    "file": "48-system-health.json",
+    "slug": "system-health",
+    "category": "IT",
+    "description": "Pings your endpoints every 5 minutes; AI diagnoses failures/slow responses and alerts with likely causes.",
+    "trigger": "schedule",
+    "credentials": [
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 49,
+    "name": "AI Workflow Orchestrator",
+    "file": "49-workflow-orchestrator.json",
+    "slug": "workflow-orchestrator",
+    "category": "IT",
+    "description": "A single smart entry point: AI reads any incoming request and routes it to the right automation webhook (lead, ticket, invoice, meeting notes...).",
+    "trigger": "webhook",
+    "credentials": [
+      "OpenAI API",
+      "Slack"
+    ]
+  },
+  {
+    "n": 50,
+    "name": "AI Business Insights Dashboard",
+    "file": "50-business-insights.json",
+    "slug": "business-insights",
+    "category": "Analytics",
+    "description": "Daily combines sales, marketing, support and finance metrics into an AI-written insights digest and logs KPIs for a dashboard.",
+    "trigger": "schedule",
+    "credentials": [
+      "Google Sheets OAuth2",
+      "OpenAI API",
+      "Slack"
+    ]
+  }
+]

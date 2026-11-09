@@ -1,0 +1,331 @@
+{
+  "name": "36 - AI Project Status Reporter",
+  "nodes": [
+    {
+      "id": "370f003a-00a7-458b-b340-7a96741a46ac",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 15 * * 5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fcf5659d-b4da-41a9-b088-d7880a66a3fe",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2bc12548-d232-4cda-9f19-633b8dec9d1b",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "0e9a1254-ede2-4dad-9fa6-53dd97387222",
+              "name": "projectApiUrl",
+              "value": "https://api.your-pm-tool.com/projects/123/tasks",
+              "type": "string"
+            },
+            {
+              "id": "6d609ef7-73cb-4fc9-85fb-c4d377d06bfc",
+              "name": "stakeholders",
+              "value": "stakeholders@example.com",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c15968d8-eb53-4b02-b492-cd30f8c0538d",
+      "name": "Fetch Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "url": "={{ $('Config').first().json.projectApiUrl }}",
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "88fe8c3e-c66b-41c0-894b-898d4389ff27",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([\"stakeholders\"].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = [{ input: { records: items.map(it => it.json) }, i: 0 }];\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "c88d7fc0-5a06-4f5c-b74d-b889e788ff99",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are a project manager. From the task list, write a weekly status report: overall RAG status, completed this week, in progress, blocked items with owners, upcoming milestones and risks. Use markdown.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: project, rag (\\\"green\\\"|\\\"amber\\\"|\\\"red\\\"), report_markdown, blocked_count (number). Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "87a7f6f2-b3d0-41e9-b2cb-5029004ab0f2",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "e7da37a0-a753-45a0-a984-10e676f69677",
+      "name": "If rag = red",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "f177a127-01da-4408-a16c-7480231fa096",
+              "leftValue": "={{ $json.rag }}",
+              "rightValue": "red",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "2a337629-396e-4c0b-aede-bcc81e019775",
+      "name": "Slack #projects",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        180
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#projects"
+        },
+        "text": "=:red_circle: {{ $json.project }} is RED\n{{ $json.report_markdown }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "0213e337-114a-4c34-9712-01cfdaa54dfc",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "sendTo": "={{ $('Config').first().json.stakeholders }}",
+        "subject": "=[RED] {{ $json.project }} weekly status",
+        "emailType": "text",
+        "message": "={{ $json.report_markdown }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "dadab14a-620b-4bb9-90a5-d1b900e33984",
+      "name": "Send Email 2",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1680,
+        420
+      ],
+      "parameters": {
+        "sendTo": "={{ $('Config').first().json.stakeholders }}",
+        "subject": "={{ $json.project }} weekly status",
+        "emailType": "text",
+        "message": "={{ $json.report_markdown }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "2ddf2abc-0c06-4536-9a5d-93952fb2a127",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 36 · AI Project Status Reporter\nEvery Friday pulls tasks from your PM tool API and writes a RAG-status project report for stakeholders.\n\n**Trigger:** schedule `0 15 * * 5`\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: Gmail OAuth2, OpenAI API, Slack.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate."
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "If rag = red",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If rag = red": {
+      "main": [
+        [
+          {
+            "node": "Slack #projects",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Email 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

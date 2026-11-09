@@ -1,0 +1,297 @@
+{
+  "name": "49 - AI Workflow Orchestrator",
+  "nodes": [
+    {
+      "id": "9829352a-6905-4a76-ba88-352cc95d4d28",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "76c67fe5-444f-4d73-9f67-73d7c35e3482",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "workflow-orchestrator",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "21d4de2d-39ed-4020-bc23-fee4c0dda03c",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5d6fca2e-6fb7-4648-bf5d-c6aaa14fe738",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "a1c7d953-4c72-49e4-b611-fb03bdd2f182",
+              "name": "routes",
+              "value": "{\"lead\":\"/webhook/lead-qualification\",\"ticket\":\"/webhook/ticket-triage\",\"invoice\":\"/webhook/invoice-automation\",\"meeting\":\"/webhook/meeting-notes\",\"expense\":\"/webhook/expense-categorizer\",\"feedback\":\"/webhook/feedback-analyzer\",\"order\":\"/webhook/order-processing\",\"contract\":\"/webhook/contract-analyzer\"}",
+              "type": "string"
+            },
+            {
+              "id": "0a84588e-35d3-42c3-aa45-673839b5501a",
+              "name": "baseUrl",
+              "value": "https://n8n.praxel.in",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "69fdf00a-b37a-4395-a730-35b213f4134d",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([\"routes\"].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = items.map((it, i) => ({ input: it.json.body ?? it.json, i }));\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "68d124bb-f098-47ee-b45b-dc27a24aa7c4",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are an automation router. Read the incoming request and pick the single best target workflow from the \\\"routes\\\" config (keys are workflow names). Return the route key, confidence 0-1 and the cleaned payload to forward.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: route, confidence (0-1), reason, payload (object). Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "6024dfa5-2438-4cdc-96e9-bb0d85797c18",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "35a1c037-4db9-4614-b0d4-1fcd2c8f5320",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "d9e6d2bb-c234-4203-8407-968f762ec6aa",
+      "name": "If confidence >= 0.7",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "0b29f198-dafb-4634-8c22-0cb53386d637",
+              "leftValue": "={{ $json.confidence }}",
+              "rightValue": 0.7,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "87ecf927-ab48-41e1-aa3f-058b1269c225",
+      "name": "Forward to Target Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        180
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.baseUrl + JSON.parse($('Config').first().json.routes)[$json.route] }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload ?? {}) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "93c64d11-4b03-47e6-bce0-d09f1af6a97b",
+      "name": "Slack #automation",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        420
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#automation"
+        },
+        "text": "=:twisted_rightwards_arrows: Could not route request confidently ({{ $json.confidence }}): {{ $json.reason }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "3bd44703-df34-41f5-a7b7-cecb86c00772",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 49 · AI Workflow Orchestrator\nA single smart entry point: AI reads any incoming request and routes it to the right automation webhook (lead, ticket, invoice, meeting notes...).\n\n**Trigger:** `POST /webhook/workflow-orchestrator` (JSON body)\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: OpenAI API, Slack.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate.\n\n**Sample payload:**\n```json\n{\n \"text\": \"New lead: Sam from Initech wants pricing for 200 seats, email sam@initech.com\"\n}\n```"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If confidence >= 0.7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If confidence >= 0.7": {
+      "main": [
+        [
+          {
+            "node": "Forward to Target Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack #automation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

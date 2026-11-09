@@ -1,0 +1,454 @@
+{
+  "name": "47 - AI Backup Automation",
+  "nodes": [
+    {
+      "id": "5cc2dcd0-629c-4012-a896-efb681f0d391",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "22546c37-6d16-4879-abe1-86a866d8d7af",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a4d48178-f5fc-46a6-9391-0a67faeb091f",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "5f78a723-910f-4d03-8933-5055790447ac",
+              "name": "n8nApiUrl",
+              "value": "https://n8n.praxel.in/api/v1/workflows",
+              "type": "string"
+            },
+            {
+              "id": "83e3a3a6-9a06-468d-8e23-472555900263",
+              "name": "githubOwner",
+              "value": "itz-kirankumar",
+              "type": "string"
+            },
+            {
+              "id": "5f728d3e-c8dd-4ab0-bb63-e3470ffd53c6",
+              "name": "githubRepo",
+              "value": "workflows",
+              "type": "string"
+            },
+            {
+              "id": "9e1d005f-9a1b-4647-ad9f-e227383e2de0",
+              "name": "backupPath",
+              "value": "backups/n8n-workflows.json",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "250b537b-a2c3-4410-bac0-4bc61c5024df",
+      "name": "Fetch Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "url": "={{ $('Config').first().json.n8nApiUrl }}",
+        "options": {
+          "timeout": 60000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      }
+    },
+    {
+      "id": "528292b8-0b99-4ea6-bae3-ce2c7f28b485",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = [{ input: { workflows: items.flatMap(it => it.json.data ?? [it.json]).map(w => ({ id: w.id, name: w.name, active: w.active, updatedAt: w.updatedAt })) }, i: 0 }];\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "3083ed76-be8c-4bdb-ab28-ac0982411a44",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are a DevOps assistant. Given the list of workflows (name, updatedAt, active), summarise how many exist, which were updated in the last 24h (relative to \\\"now\\\") and anything suspicious (many deactivated, errors).\\n\\nRespond ONLY with a valid JSON object with exactly these keys: workflow_count (number), updated_last_24h (array), backup_summary, issues_found (boolean). Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "6bf5a6b3-3e59-43b7-a371-f82c0ec7dbda",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "d31af228-c482-4414-ae25-c40ee77dfb25",
+      "name": "If issues_found is true",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "0c10ac83-df7b-4382-b321-57d96d611509",
+              "leftValue": "={{ $json.issues_found }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "a9470242-7d99-4d14-b215-c90cd0335bea",
+      "name": "Slack #devops",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        180
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#devops"
+        },
+        "text": "=:floppy_disk: Backup done with warnings: {{ $json.backup_summary }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "e9603b60-1f08-430a-8d65-9de143f41880",
+      "name": "Get Existing Backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Config').first().json.githubOwner }}/{{ $('Config').first().json.githubRepo }}/contents/{{ $('Config').first().json.backupPath }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      }
+    },
+    {
+      "id": "dc15c9bf-bdbb-45a5-b3ac-49354b3830b2",
+      "name": "Build Commit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const workflows = $('Fetch Data').all().flatMap(it => it.json.data ?? [it.json]);\nconst summary = $('Parse AI Output').first().json.backup_summary ?? 'n8n backup';\nconst sha = $input.first().json.sha;\nreturn [{ json: { message: 'n8n backup: ' + summary.slice(0, 60), content: Buffer.from(JSON.stringify(workflows, null, 2)).toString('base64'), ...(sha ? { sha } : {}) } }];"
+      }
+    },
+    {
+      "id": "562161a4-f072-44fa-91fc-d3f0053934ad",
+      "name": "Commit Backup to GitHub",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/{{ $('Config').first().json.githubOwner }}/{{ $('Config').first().json.githubRepo }}/contents/{{ $('Config').first().json.backupPath }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "e0d2fba5-7e81-49d4-b889-9da9c46a86ed",
+      "name": "Get Existing Backup 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        420
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Config').first().json.githubOwner }}/{{ $('Config').first().json.githubRepo }}/contents/{{ $('Config').first().json.backupPath }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      }
+    },
+    {
+      "id": "0c842b9c-408c-4a5b-8640-98a8cc5ebb99",
+      "name": "Build Commit 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        420
+      ],
+      "parameters": {
+        "jsCode": "const workflows = $('Fetch Data').all().flatMap(it => it.json.data ?? [it.json]);\nconst summary = $('Parse AI Output').first().json.backup_summary ?? 'n8n backup';\nconst sha = $input.first().json.sha;\nreturn [{ json: { message: 'n8n backup: ' + summary.slice(0, 60), content: Buffer.from(JSON.stringify(workflows, null, 2)).toString('base64'), ...(sha ? { sha } : {}) } }];"
+      }
+    },
+    {
+      "id": "727b6796-f49a-4802-9eac-408e67cf1142",
+      "name": "Commit Backup to GitHub 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        420
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/{{ $('Config').first().json.githubOwner }}/{{ $('Config').first().json.githubRepo }}/contents/{{ $('Config').first().json.backupPath }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "68334264-e6ba-464b-a48b-232ae3cabce6",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 47 · AI Backup Automation\nNightly exports every n8n workflow via the n8n API to a GitHub repo and has AI summarise what changed.\n\n**Trigger:** schedule `0 2 * * *`\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: GitHub API, Header Auth (X-N8N-API-KEY), OpenAI API, Slack.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate."
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "If issues_found is true",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If issues_found is true": {
+      "main": [
+        [
+          {
+            "node": "Slack #devops",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Existing Backup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Existing Backup 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing Backup": {
+      "main": [
+        [
+          {
+            "node": "Build Commit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Commit": {
+      "main": [
+        [
+          {
+            "node": "Commit Backup to GitHub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing Backup 2": {
+      "main": [
+        [
+          {
+            "node": "Build Commit 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Commit 2": {
+      "main": [
+        [
+          {
+            "node": "Commit Backup to GitHub 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,273 @@
+{
+  "name": "48 - AI System Health Monitor",
+  "nodes": [
+    {
+      "id": "e84b3d23-ab7a-4bac-b564-e14144ab8f61",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "52a48d99-03e7-4f5b-927b-c7334c1346b2",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "include": "all",
+        "options": {},
+        "assignments": {
+          "assignments": [
+            {
+              "id": "37473c8b-43ec-4112-9aa4-f950510663ea",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
+            },
+            {
+              "id": "d5f2d042-f0aa-4013-b130-d66125f1a6e9",
+              "name": "endpoints",
+              "value": "https://n8n.praxel.in/healthz,https://example.com",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "68c934ea-0f41-4d1d-a4bd-a255f1ce1156",
+      "name": "Check Endpoints",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Pings every endpoint and only passes on the unhealthy ones (keeps AI cost near zero when all is well).\nconst urls = $('Config').first().json.endpoints.split(',').map(u => u.trim()).filter(Boolean);\nconst out = [];\nfor (const url of urls) {\n  const t = Date.now();\n  try {\n    const r = await this.helpers.httpRequest({ url, method: 'GET', returnFullResponse: true, ignoreHttpStatusErrors: true, timeout: 15000 });\n    const ms = Date.now() - t;\n    if (r.statusCode >= 400 || ms > 2000) out.push({ json: { url, status_code: r.statusCode, response_ms: ms } });\n  } catch (e) {\n    out.push({ json: { url, status_code: 0, response_ms: Date.now() - t, error: e.message } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "de66c32e-d86b-4a02-8f92-5a52d9b50e3d",
+      "name": "Prepare AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Packs the incoming data, the current time and relevant settings into one prompt string per item.\nconst items = $input.all();\nconst cfg = $('Config').first().json;\nconst settings = Object.fromEntries([\"endpoints\"].map(k => [k, cfg[k]]));\nconst MAX = 15000;\nconst clip = s => (s.length > MAX ? s.slice(0, MAX) + ' ...[truncated]' : s);\nconst stripHtml = h => String(h ?? '').replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst it0 = arr => arr[0]?.json ?? {};\nconst packed = items.map((it, i) => ({ input: it.json, i }));\nreturn packed.map(({ input, i }) => ({\n  json: { aiInput: clip(JSON.stringify({ now: new Date().toISOString(), settings, input })) },\n  pairedItem: { item: i },\n}));"
+      }
+    },
+    {
+      "id": "c412195c-b1e3-4dd9-928a-82a9db73dddb",
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: \"You are an SRE. Given the health-check result (url, status code, response time ms, error), decide whether the service is healthy (2xx and under 2000ms). If not, give severity and the most likely causes and first steps.\\n\\nRespond ONLY with a valid JSON object with exactly these keys: url, healthy (boolean), status_code, response_ms (number), severity (\\\"info\\\"|\\\"warning\\\"|\\\"critical\\\"), diagnosis, first_steps (array). Use null for unknown values.\" }, { role: 'user', content: $json.aiInput } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "24b1aa4a-6b57-4e95-b7a4-32b0d8a17b80",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, i) => {\n  let out;\n  try { out = JSON.parse(item.json.choices[0].message.content); }\n  catch (e) { out = { parse_error: true, raw: item.json?.choices?.[0]?.message?.content ?? item.json }; }\n  return { json: { ...out, processed_at: new Date().toISOString() }, pairedItem: { item: i } };\n});"
+      }
+    },
+    {
+      "id": "c5b880fc-ea8c-4ea1-9b75-3de014642700",
+      "name": "If healthy is false",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "0a613b41-01aa-43fc-9836-d21aaf547faa",
+              "leftValue": "={{ $json.healthy }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "6c88ef6f-ab52-469d-ad34-65bde61e07d0",
+      "name": "Slack #alerts",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        180
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#alerts"
+        },
+        "text": "=:red_circle: {{ $json.severity }} - {{ $json.url }} unhealthy ({{ $json.status_code }}, {{ $json.response_ms }}ms)\n{{ $json.diagnosis }}",
+        "otherOptions": {}
+      }
+    },
+    {
+      "id": "69e2fc66-85d1-44c3-a867-0c58e3d36c55",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 460,
+        "color": 4,
+        "content": "## 48 · AI System Health Monitor\nPings your endpoints every 5 minutes; AI diagnoses failures/slow responses and alerts with likely causes.\n\n**Trigger:** schedule `*/5 * * * *`\n\n**Setup**\n1. Edit the **Config** node (model, sheet URL, endpoints).\n2. Connect credentials: OpenAI API, Slack.\n3. Pick Slack channels / sheet tabs on the action nodes.\n4. Activate."
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Check Endpoints",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Endpoints": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "If healthy is false",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If healthy is false": {
+      "main": [
+        [
+          {
+            "node": "Slack #alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
